@@ -1,6 +1,7 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
+
 const { OpenAI } = require('openai');
 const Razorpay = require('razorpay');
 const crypto = require('crypto');
