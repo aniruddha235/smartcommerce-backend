@@ -190,3 +190,33 @@ app.post('/api/payment/verify', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+// Create Razorpay Order endpoint
+app.post('/api/payment/order', async (req, res) => {
+  try {
+    const { amount, currency = 'INR' } = req.body;
+
+    // Validate incoming amount
+    const parsedAmount = parseFloat(amount);
+    if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ error: 'Valid order amount is required' });
+    }
+
+    const options = {
+      amount: Math.round(parsedAmount * 100), // Amount in paise
+      currency,
+      receipt: `receipt_${Date.now()}`
+    };
+
+    const order = await razorpay.orders.create(options);
+    return res.json(order);
+  } catch (error) {
+    // Log complete error stack to Render console
+    console.error('Razorpay Order Execution Error:', error);
+    
+    return res.status(500).json({ 
+      error: 'Failed to create Razorpay order',
+      details: error.description || error.message || error 
+    });
+  }
+});
