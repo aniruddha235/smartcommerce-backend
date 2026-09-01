@@ -2,11 +2,12 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 const { OpenAI } = require('openai');
+const Razorpay = require('razorpay');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Enable CORS and JSON parsing
 app.use(cors());
 app.use(express.json());
 
@@ -52,12 +53,18 @@ if (process.env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY.includes('dummy'))
   openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 }
 
-// Health check route
+// Initialize Razorpay client
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID || 'dummy_key_id',
+  key_secret: process.env.RAZORPAY_KEY_SECRET || 'dummy_key_secret'
+});
+
+// Health check endpoint
 app.get('/', (req, res) => {
   res.send('SmartCommerce AI Backend is running live.');
 });
 
-// Fetch all products
+// Fetch product catalog endpoint
 app.get('/api/products', (req, res) => {
   res.json(PRODUCTS);
 });
@@ -70,7 +77,6 @@ app.post('/api/search', async (req, res) => {
     return res.status(400).json({ error: 'Search query is required' });
   }
 
-  // Fallback function for keyword matching if AI fails or key is unconfigured
   const executeFallback = () => {
     const lowerQuery = query.toLowerCase();
     const matched = PRODUCTS.filter(p =>
@@ -129,6 +135,55 @@ app.post('/api/search', async (req, res) => {
   } catch (error) {
     console.error('OpenAI Search Error:', error.message);
     return executeFallback();
+  }
+});
+
+// Create Razorpay Order endpoint
+app.post('/api/payment/order', async (req, res) => {
+  try {
+    const { amount, currency = 'INR' } = req.body;
+
+    if (!amount) {
+      return res.status(400).json({ error: 'Order amount is required' });
+    }
+
+    const options = {
+      amount: Math.round(amount * 100), // Amount in smallest currency unit (paise)
+      currency,
+      receipt: `receipt_${Date.now()}`
+    };
+
+    const order = await razorpay.orders.create(options);
+    res.json(order);
+  } catch (error) {
+    console.error('Razorpay Order Error:', error);
+    res.status(500).json({ error: 'Failed to create Razorpay order' });
+  }
+});
+
+// Verify Razorpay Payment Signature endpoint
+app.post('/api/payment/verify', (req, res) => {
+  try {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ error: 'Missing required payment verification parameters' });
+    }
+
+    const body = razorpay_order_id + '|' + razorpay_payment_id;
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || 'dummy_key_secret')
+      .update(body.toString())
+      .digest('hex');
+
+    if (expectedSignature === razorpay_signature) {
+      return res.json({ success: true, message: 'Payment verified successfully' });
+    } else {
+      return res.status(400).json({ success: false, message: 'Invalid payment signature' });
+    }
+  } catch (error) {
+    console.error('Payment Verification Error:', error);
+    res.status(500).json({ error: 'Failed to verify payment' });
   }
 });
 
